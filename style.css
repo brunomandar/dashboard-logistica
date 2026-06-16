@@ -108,11 +108,13 @@ h1 {
 .bloco-graficos {
     display: grid;
     grid-template-columns: 1fr 2fr;   /* ✅ mais espaço pro gráfico */
+    justify-content: center;
     align-items: center;
     margin-top: 30px;
-    padding-left: 10px;
-    padding-right: 10px;
-    gap: 20px;                        /* ✅ DESENCOSTA do donut */
+    gap: 40px;                        /* ✅ DESENCOSTA do donut */
+    max-width: 1100px;          /* ✅ limita largura */
+    margin-left: auto;          /* ✅ CENTRALIZA NA TELA */
+    margin-right: auto;         /* ✅ CENTRALIZA NA TELA */
 }
 
 .grafico-box {
