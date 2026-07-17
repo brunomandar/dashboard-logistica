@@ -1,6 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
+from pymongo import MongoClient
+import os
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 
 app = FastAPI()
 
@@ -12,105 +18,173 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def home():
-    return {"status": "ok"}
 
-@app.get("/dashboard")
-def dashboard(gerente: str = None, forum: str = None, status: str = None):
-
-    df = pd.read_excel("Base Limpa.xlsx")
-
-    # ✅ limpar dados
-    df["Gerente"] = df["Gerente"].astype(str).str.strip().str.upper()
-    df["Forum"] = df["Forum"].astype(str).str.strip().str.upper()
-    df["Status Geral"] = df["Status Geral"].astype(str).str.strip().str.upper()
-
-    if gerente:
-        df = df[df["Gerente"] == gerente.strip().upper()]
-
-    
-    if forum:
-        df = df[df["Forum"].str.strip() == forum.strip().upper()]
+MONGO_URL = os.getenv("MONGO_URL")
 
 
-    if status:
-        df = df[df["Status Geral"].str.strip() == status.strip().upper()]
+if not MONGO_URL:
+    raise ValueError("Variável MONGO_URL não encontrada.")
 
 
-    total = len(df)
+client = MongoClient(MONGO_URL)
 
-    atrasado = len(df[df["Status"] == "ATRASADO"])
-    atencao = len(df[df["Status"] == "ATENÇÃO"])
-    prazo = len(df[df["Status"] == "NO PRAZO"])
+db = client["dashboard_logistica"]
+collection = db["projetos"]
 
-    planejado = len(df[df["Status Geral"] == "PLANEJADO"])
-    em_execucao = len(df[df["Status Geral"] == "EXECUÇÃO"])
-    backlog = len(df[df["Status Geral"] == "BACKLOG"])
-
-    prioridade_alta = len(df[df["Prioridade"] == "Alta"])
-    prioridade_media = len(df[df["Prioridade"] == "Média"])
-    prioridade_baixa = len(df[df["Prioridade"] == "Baixa"])
-
+@app.get("/health")
+def health():
     return {
-        "total": int(total),
-        "atrasado": int(atrasado),
-        "atencao": int(atencao),
-        "prazo": int(prazo),
-        "planejado": int(planejado),
-        "em_execucao": int(em_execucao),
-        "backlog": int(backlog),
-        "prioridade_alta": int(prioridade_alta),
-        "prioridade_media": int(prioridade_media),
-        "prioridade_baixa": int(prioridade_baixa)
+        "status": "ok",
+        "service": "dashboard-logistica-api"
     }
 
-@app.get("/projetos")
-def projetos(gerente: str = None, forum: str = None, status: str = None):
+@app.get("/")
+def home():
+    return {
+        "status": "ok",
+        "database": "mongodb"
+}
 
-    df = pd.read_excel("Base Limpa.xlsx")
-    df = df.fillna("")
+@app.get("/dashboard")
+def dashboard(
+    gerente: str = None,
+    forum: str = None,
+    status: str = None
+):
 
-    # normalização
-    df["Gerente"] = df["Gerente"].astype(str).str.strip().str.upper()
-    df["Forum"] = df["Forum"].astype(str).str.strip().str.upper()
-    df["Status Geral"] = df["Status Geral"].astype(str).str.strip().str.upper()
+    query = {}
 
     if gerente:
-        df = df[df["Gerente"] == gerente.strip().upper()]
+        query["Gerente"] = gerente
 
     if forum:
-        df = df[df["Forum"] == forum.strip().upper()]
+        query["Forum"] = forum
 
     if status:
-        df = df[df["Status Geral"] == status.strip().upper()]
+        query["Status Geral"] = status
 
-    return df.to_dict(orient="records")
+    dados = list(
+        collection.find(
+            query,
+            {"_id": 0}
+        )
+    )
 
-@app.get("/acoes")
-def acoes(gerente: str = "", forum: str = ""):
-    
-    df = pd.read_excel("Base Limpa.xlsx")
-    df = df.fillna("")
+    total = len(dados)
 
-    # Padroniza texto
-    df["Status Ação"] = df["Status Ação"].astype(str).str.strip().str.upper()
+    atrasado = len(
+        [x for x in dados if x.get("Status") == "ATRASADO"]
+    )
 
-    # ✅ FILTROS (NOVO)
-    if gerente:
-        df = df[df["Gerente"] == gerente]   # confira o nome da coluna
+    atencao = len(
+        [x for x in dados if x.get("Status") == "ATENÇÃO"]
+    )
 
-    if forum:
-        df = df[df["Forum"] == forum]        # confira acento / nome exato
+    prazo = len(
+        [x for x in dados if x.get("Status") == "NO PRAZO"]
+    )
 
-    # ✅ MÉTRICAS (mantém o que você já tinha)
-    total = len(df)
-    atrasada = len(df[df["Status Ação"] == "ATRASADO"])
-    no_prazo = len(df[df["Status Ação"] == "NO PRAZO"])
+    planejado = len(
+        [x for x in dados if x.get("Status Geral") == "PLANEJADO"]
+    )
+
+    em_execucao = len(
+        [x for x in dados if x.get("Status Geral") == "EXECUÇÃO"]
+    )
+
+    backlog = len(
+        [x for x in dados if x.get("Status Geral") == "BACKLOG"]
+    )
+
+    prioridade_alta = len(
+        [x for x in dados if x.get("Prioridade") == "Alta"]
+    )
+
+    prioridade_media = len(
+        [x for x in dados if x.get("Prioridade") == "Média"]
+    )
+
+    prioridade_baixa = len(
+        [x for x in dados if x.get("Prioridade") == "Baixa"]
+    )
 
     return {
-        "total_acoes": int(total),
-        "acoes_atrasadas": int(atrasada),
-        "acoes_no_prazo": int(no_prazo),
-        "dados": df.to_dict(orient="records")
+        "total": total,
+        "atrasado": atrasado,
+        "atencao": atencao,
+        "prazo": prazo,
+        "planejado": planejado,
+        "em_execucao": em_execucao,
+        "backlog": backlog,
+        "prioridade_alta": prioridade_alta,
+        "prioridade_media": prioridade_media,
+        "prioridade_baixa": prioridade_baixa
+    }
+
+
+@app.get("/projetos")
+def projetos(
+    gerente: str = None,
+    forum: str = None,
+    status: str = None
+):
+
+    query = {}
+
+    if gerente:
+        query["Gerente"] = gerente
+
+    if forum:
+        query["Forum"] = forum
+
+    if status:
+        query["Status Geral"] = status
+
+    dados = list(
+        collection.find(
+            query,
+            {"_id": 0}
+        )
+    )
+
+    return dados
+
+@app.get("/acoes")
+def acoes(
+    gerente: str = "",
+    forum: str = ""
+):
+
+    query = {}
+
+    if gerente:
+        query["Gerente"] = gerente
+
+    if forum:
+        query["Forum"] = forum
+
+    dados = list(
+        collection.find(
+            query,
+            {"_id": 0}
+        )
+    )
+
+    total = len(dados)
+
+    atrasadas = len(
+        [x for x in dados
+        if x.get("Status Ação") == "ATRASADO"]
+    )
+
+    no_prazo = len(
+        [x for x in dados
+        if x.get("Status Ação") == "NO PRAZO"]
+    )
+
+    return {
+        "total_acoes": total,
+        "acoes_atrasadas": atrasadas,
+        "acoes_no_prazo": no_prazo,
+        "dados": dados
     }
